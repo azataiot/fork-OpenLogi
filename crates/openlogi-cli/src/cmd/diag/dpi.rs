@@ -4,7 +4,7 @@ use std::fmt;
 
 use anyhow::{Context, Result};
 use clap::Args;
-use openlogi_hid::DpiCapabilities;
+use openlogi_hid::{Dpi, DpiCapabilities, DpiInfo};
 
 use crate::cmd::diag::select_device;
 
@@ -58,41 +58,76 @@ pub async fn run(args: DpiArgs) -> Result<()> {
         return Ok(());
     }
 
-    println!("  writing DPI: {target}");
-    openlogi_hid::set_dpi(&route, target)
-        .await
-        .context("write DPI")?;
+    check_dpi_round_trip(
+        &info,
+        target,
+        async |dpi| openlogi_hid::set_dpi(&route, dpi).await.context("set DPI"),
+        async || openlogi_hid::get_dpi(&route).await.context("get DPI"),
+    )
+    .await
+}
 
-    let after = openlogi_hid::get_dpi(&route)
-        .await
-        .context("read DPI after write")?;
-    println!("  read-back DPI: {after}");
+async fn check_dpi_round_trip(
+    info: &DpiInfo,
+    target: Dpi,
+    set: impl AsyncFn(Dpi) -> Result<()>,
+    get: impl AsyncFn() -> Result<Dpi>,
+) -> Result<()> {
+    let before = info.current;
+    let tested: Result<()> = async {
+        println!("  writing DPI: {target}");
+        set(target).await.context("write DPI")?;
 
-    // `target` is always a device-reported value, so a mismatch means the
-    // device adjusted it — fine if it landed on another supported value, but a
-    // no-op write (`after == before`) or an off-list read-back is a real fault.
-    // (`target != before` is guaranteed by the early return above.)
-    if after == before {
-        anyhow::bail!("DPI write failed: requested {target}, device still reports {before}");
-    }
-    if after != target {
-        if info.capabilities.contains(after) {
-            println!("  note: device snapped {target} → {after}");
-        } else {
-            anyhow::bail!(
-                "DPI write failed: requested {target}, device reports {after} \
-                 which is not in its supported list"
-            );
+        let after = get().await.context("read DPI after write")?;
+        println!("  read-back DPI: {after}");
+
+        // `target` is always a device-reported value, so a mismatch means the
+        // device adjusted it — fine if it landed on another supported value, but a
+        // no-op write (`after == before`) or an off-list read-back is a real fault.
+        // (`target != before` is guaranteed by the early return above.)
+        if after == before {
+            anyhow::bail!("DPI write failed: requested {target}, device still reports {before}");
         }
+        if after != target {
+            if info.capabilities.contains(after) {
+                println!("  note: device snapped {target} → {after}");
+            } else {
+                anyhow::bail!(
+                    "DPI write failed: requested {target}, device reports {after} \
+                 which is not in its supported list"
+                );
+            }
+        }
+
+        Ok(())
     }
+    .await;
 
-    println!("  restoring DPI: {before}");
-    openlogi_hid::set_dpi(&route, before)
-        .await
-        .context("restore DPI")?;
-
-    println!("✓ DPI round-trip OK");
-    Ok(())
+    let restored: Result<()> = async {
+        println!("  restoring DPI: {before}");
+        set(before).await.context("restore DPI")?;
+        let actual = get().await.context("read DPI after restoration")?;
+        anyhow::ensure!(
+            actual == before,
+            "restoration failed: expected {before}, got {actual}"
+        );
+        println!("  restored DPI: {actual}");
+        Ok(())
+    }
+    .await;
+    match (tested, restored) {
+        (Ok(()), Ok(())) => {
+            println!("✓ DPI round-trip OK");
+            Ok(())
+        }
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => {
+            Err(error.context(format!("could not confirm original DPI {before}")))
+        }
+        (Err(test), Err(restore)) => anyhow::bail!(
+            "DPI test failed: {test:#}; original DPI {before} restoration failed: {restore:#}"
+        ),
+    }
 }
 
 struct DpiSummaryDisplay<'a>(&'a DpiCapabilities);
@@ -146,5 +181,87 @@ mod summarize_dpi_tests {
             DpiSummaryDisplay(&caps).to_string(),
             "100..1300 (step ≈ 100, 13 values)"
         );
+    }
+}
+
+#[cfg(test)]
+mod round_trip_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn success_requires_exact_restoration_readback() {
+        for restored in [800, 1200] {
+            let reads = Cell::new(0);
+            let info = DpiInfo {
+                current: 800.into(),
+                capabilities: DpiCapabilities::new(vec![800, 1200]).unwrap(),
+            };
+            let result = check_dpi_round_trip(
+                &info,
+                1200.into(),
+                async |_| Ok(()),
+                async || {
+                    reads.set(reads.get() + 1);
+                    Ok(if reads.get() == 1 { 1200 } else { restored }.into())
+                },
+            )
+            .await;
+            assert_eq!(result.is_ok(), restored == 800);
+            assert_eq!(reads.get(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_write_still_attempts_restoration_and_reports_both_errors() {
+        let writes = Cell::new(0);
+        let info = DpiInfo {
+            current: 800.into(),
+            capabilities: DpiCapabilities::new(vec![800, 1200]).unwrap(),
+        };
+        let error = check_dpi_round_trip(
+            &info,
+            1200.into(),
+            async |dpi| {
+                writes.set(writes.get() + 1);
+                anyhow::bail!("write {dpi} failed")
+            },
+            async || panic!("a failed write must not proceed to readback"),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert_eq!(writes.get(), 2);
+        assert!(error.contains("write 1200 failed"));
+        assert!(error.contains("write 800 failed"));
+    }
+    use std::cell::{Cell, RefCell};
+
+    #[tokio::test]
+    async fn failed_readback_still_restores_and_confirms_original_dpi() {
+        let writes = RefCell::new(Vec::new());
+        let reads = Cell::new(0);
+        let info = DpiInfo {
+            current: 800.into(),
+            capabilities: DpiCapabilities::new(vec![800, 1200]).unwrap(),
+        };
+        let result = check_dpi_round_trip(
+            &info,
+            1200.into(),
+            async |dpi| {
+                writes.borrow_mut().push(dpi);
+                Ok(())
+            },
+            async || {
+                reads.set(reads.get() + 1);
+                if reads.get() == 1 {
+                    anyhow::bail!("read failed");
+                }
+                Ok(800.into())
+            },
+        )
+        .await;
+        assert!(result.is_err(), "failed readback must fail the diagnostic");
+        assert_eq!(*writes.borrow(), vec![Dpi::from(1200), Dpi::from(800)]);
+        assert_eq!(reads.get(), 2);
     }
 }
