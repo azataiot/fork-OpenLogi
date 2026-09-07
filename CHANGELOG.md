@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-09-07
+
+### Added
+
+- *(i18n)* migrate catalogs to semantic TOML keys ([#1169](https://github.com/AprilNEA/OpenLogi/pull/1169))
+
+### Changed
+
+- *(i18n)* avoid copying borrowed translations ([#1184](https://github.com/AprilNEA/OpenLogi/pull/1184))
+
+### Fixed
+
+- *(i18n)* refine French asset and control descriptions ([#1278](https://github.com/AprilNEA/OpenLogi/pull/1278))
+- *(i18n)* polish Brazilian Portuguese profile and settings copy ([#1276](https://github.com/AprilNEA/OpenLogi/pull/1276))
+- *(i18n)* avoid repeating device headings in count captions
+- *(i18n)* localize DPI steps and correct count labels
+- *(i18n)* polish supported locale copy ([#1180](https://github.com/AprilNEA/OpenLogi/pull/1180))
+
 ## [0.8.3] - 2026-08-30
 
 ### Fixed
