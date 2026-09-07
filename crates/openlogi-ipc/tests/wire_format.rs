@@ -101,7 +101,65 @@ fn representative_smartshift_status() -> SmartShiftStatus {
 /// that makes that visible in the same diff.
 #[test]
 fn protocol_version_is_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 29);
+    assert_eq!(PROTOCOL_VERSION, 32);
+}
+
+#[test]
+fn onboard_profile_wire_contract() {
+    use openlogi_core::hid::onboard_profile::{
+        OnboardApplyResult, OnboardAssignment, OnboardAssignmentEdit, OnboardProfileEdit,
+        OnboardProfileFailure, ProfileEditId,
+    };
+    let route = DeviceRoute::Direct {
+        vendor_id: 1,
+        product_id: 2,
+    };
+    let id = ProfileEditId {
+        run: 3,
+        sequence: 4,
+    };
+    assert_wire(
+        &AgentRequest::ReadOnboardProfile {
+            route: route.clone(),
+        },
+        "1a020102",
+    );
+    assert_wire(
+        &AgentRequest::ApplyOnboardProfile {
+            route: route.clone(),
+            id,
+            edit: OnboardProfileEdit {
+                report_interval_ms: Some(2),
+                assignments: vec![OnboardAssignmentEdit {
+                    index: 7,
+                    assignment: OnboardAssignment::DpiShift,
+                }],
+            },
+        },
+        "1b02010203040102010707",
+    );
+    assert_wire(
+        &AgentRequest::RestoreOnboardProfile {
+            route,
+            id,
+            backup_id: ProfileEditId {
+                run: 1,
+                sequence: 2,
+            },
+        },
+        "1c02010203040102",
+    );
+    assert_wire(&OnboardApplyResult::Written { backup_id: id }, "010304");
+    assert_wire(
+        &WriteError::OnboardProfile {
+            kind: OnboardProfileFailure::Uncertain,
+            message: "lost".into(),
+            backup_id: Some(id),
+        },
+        "0e05046c6f7374010304",
+    );
+    assert_wire(&HidppOperation::ReadOnboardProfile, "0f");
+    assert_wire(&HidppOperation::WriteOnboardProfile, "10");
 }
 
 #[test]
@@ -415,12 +473,13 @@ fn device_inventory() {
                 thumbwheel: true,
                 haptic_feedback: true,
                 haptic_panel: true,
+                onboard_profiles: true,
             }),
         }],
     }];
     assert_wire(
         &inventory,
-        "010d426f6c74205265636569766572fb6d04fb48c501084630304443414645010101094d58204d535452335301fb34b000010150020001030106323134304c5a0102030400010100fb34b0fb8240000b010101000001010101",
+        "010d426f6c74205265636569766572fb6d04fb48c501084630304443414645010101094d58204d535452335301fb34b000010150020001030106323134304c5a0102030400010100fb34b0fb8240000b01010100000101010101",
     );
 }
 
@@ -596,4 +655,35 @@ fn standalone_light_dtos_commands_and_errors() {
         "0c05636f6c6f72",
     );
     assert_wire(&WriteError::AmbiguousRawDevice, "0d");
+}
+
+#[test]
+fn onboard_profile_view_includes_live_rate_even_when_flash_needs_recovery() {
+    use openlogi_core::hid::onboard_profile::{
+        OnboardProfileContents, OnboardProfileDescriptor, OnboardProfileView, ProfileEditId,
+    };
+    let view = OnboardProfileView {
+        edit_id: ProfileEditId {
+            run: 3,
+            sequence: 4,
+        },
+        sector: 1,
+        description: OnboardProfileDescriptor {
+            memory_model: 1,
+            profile_format: 1,
+            macro_format: 1,
+            profile_count: 1,
+            rom_profile_count: 1,
+            button_count: 1,
+            sector_count: 2,
+            sector_size: 256,
+            mechanical_layout: 0,
+            various_info: 0,
+        },
+        supported_intervals_ms: vec![1, 2],
+        contents: OnboardProfileContents::InvalidProfile,
+        backups: Vec::new(),
+        active_report_interval_ms: Ok(1),
+    };
+    assert_wire(&view, "03040101010101010102fb0001000002010201000001");
 }

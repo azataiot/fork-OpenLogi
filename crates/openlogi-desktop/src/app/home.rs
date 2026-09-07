@@ -590,6 +590,14 @@ pub(super) fn connection_icon_path(
     match route {
         Some(DeviceRoute::Bolt { .. }) => "action-icons/bolt.svg",
         Some(DeviceRoute::Unifying { .. }) => "action-icons/unifying.svg",
+        Some(DeviceRoute::Direct {
+            vendor_id,
+            product_id,
+        }) if openlogi_device_registry::hidpp::find_direct_hidpp(*vendor_id, *product_id)
+            .is_some_and(|device| device.wired_only) =>
+        {
+            "action-icons/usb.svg"
+        }
         // Explicit arms (not `_`) so a new DeviceRoute variant trips the
         // compiler here, matching the exhaustive sibling `route_label`.
         Some(DeviceRoute::Direct { .. }) | None => match transports {

@@ -96,6 +96,16 @@ pub enum WriteError {
     /// Multiple raw HID nodes matched one physical route.
     #[error("multiple raw HID devices matched the route")]
     AmbiguousRawDevice,
+    /// An onboard operation rejected before writing or left an uncertain outcome.
+    #[error("onboard profile {kind:?}: {message}")]
+    OnboardProfile {
+        /// Failure category used by the editor.
+        kind: super::onboard_profile::OnboardProfileFailure,
+        /// Actionable details without raw profile data.
+        message: String,
+        /// Durable backup when one was created before the attempt.
+        backup_id: Option<super::onboard_profile::ProfileEditId>,
+    },
 }
 
 /// HID++ operation being performed when a device write/read failed.
@@ -133,6 +143,10 @@ pub enum HidppOperation {
     Light,
     /// Play one haptic waveform. Appended last — variant order is wire format.
     PlayHaptic,
+    /// Read or prepare an onboard profile.
+    ReadOnboardProfile,
+    /// Write an onboard profile under exclusive access.
+    WriteOnboardProfile,
 }
 
 /// HID++ feature error kind in a serializable wire-safe form.

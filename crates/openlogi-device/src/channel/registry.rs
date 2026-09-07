@@ -199,6 +199,19 @@ impl<Node: Eq, Channel: Clone> Registry<Node, Channel> {
 }
 
 impl<Node: Eq, Channel> Registry<Node, Channel> {
+    fn is_unique(&self, route: &DeviceRoute, channel: &Channel) -> bool {
+        self.state.read().is_ok_and(|state| {
+            let mut matches = state
+                .publications
+                .iter()
+                .filter(|entry| entry.routes.contains(route));
+            matches
+                .next()
+                .is_some_and(|entry| (self.same_channel)(&entry.channel, channel))
+                && matches.next().is_none()
+        })
+    }
+
     fn any_current(&self, predicate: impl FnMut(&DeviceRoute, &Channel) -> bool) -> bool {
         self.state
             .read()
@@ -273,6 +286,12 @@ impl ChannelRegistry {
             shared.matches(route) && Arc::ptr_eq(channel, shared.channel())
         })
     }
+
+    /// Whether exactly one node publishes this route through this connection.
+    #[must_use]
+    pub fn is_unique_current(&self, shared: &SharedChannel) -> bool {
+        self.inner.is_unique(shared.route(), shared.channel())
+    }
 }
 
 #[cfg(test)]
@@ -310,6 +329,20 @@ mod tests {
             vendor_id: 0x046d,
             product_id,
         }
+    }
+
+    #[test]
+    fn unique_channel_rejects_collisions_and_replacements() {
+        let route = direct(0xabcd);
+        let registry = Registry::<u8, &'static str>::default();
+        registry.replace_node(1, [route.clone()], "first");
+        assert!(registry.is_unique(&route, &"first"));
+        registry.replace_node(2, [route.clone()], "second");
+        assert!(!registry.is_unique(&route, &"first"));
+        assert!(!registry.is_unique(&route, &"second"));
+        registry.remove_node(&1);
+        assert!(!registry.is_unique(&route, &"first"));
+        assert!(registry.is_unique(&route, &"second"));
     }
 
     fn bolt(uid: &str, slot: u8) -> DeviceRoute {

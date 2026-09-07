@@ -16,6 +16,9 @@ use openlogi_core::app::ForegroundApp;
 use openlogi_core::binding::{ActionRingIcon, ActionRingSlot};
 use openlogi_core::config::Lighting;
 use openlogi_core::device::{DeviceInventory, StandaloneDevice};
+use openlogi_core::hid::onboard_profile::{
+    OnboardApplyResult, OnboardProfileEdit, OnboardProfileView, ProfileEditId,
+};
 use openlogi_core::hid::{
     DeviceRoute, Dpi, DpiInfo, LightCommand, PairingError, PasskeyMethod, ReceiverSelector,
     SmartShiftStatus, WriteError,
@@ -61,7 +64,7 @@ pub use succession::Identity;
 /// v28: `Action::HoldShortcut` appended for lifecycle-held keyboard output.
 /// v29: `Agent::declare_client` + [`ClientKind`] appended — typed demand for
 ///      the macOS dormancy gate.
-pub const PROTOCOL_VERSION: u32 = 29;
+pub const PROTOCOL_VERSION: u32 = 32;
 
 /// Environment variable through which the agent hands a supervised helper the
 /// run token it will serve, so the helper knows which agent it belongs to
@@ -560,4 +563,18 @@ pub trait Agent {
     /// arms only on [`ClientKind::Gui`]. The takeover probe never declares —
     /// it speaks only [`Agent::protocol_version`] — and so never arms.
     async fn declare_client(kind: ClientKind);
+    /// Prepare a single-use edit of the active onboard profile.
+    async fn read_onboard_profile(route: DeviceRoute) -> Result<OnboardProfileView, WriteError>;
+    /// Save a backup and apply explicit changes to the prepared profile.
+    async fn apply_onboard_profile(
+        route: DeviceRoute,
+        id: ProfileEditId,
+        edit: OnboardProfileEdit,
+    ) -> Result<OnboardApplyResult, WriteError>;
+    /// Restore a server-owned backup through a fresh preparation.
+    async fn restore_onboard_profile(
+        route: DeviceRoute,
+        id: ProfileEditId,
+        backup_id: ProfileEditId,
+    ) -> Result<OnboardApplyResult, WriteError>;
 }

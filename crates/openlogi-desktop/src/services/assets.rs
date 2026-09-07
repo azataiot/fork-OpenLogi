@@ -103,7 +103,16 @@ fn open_in_file_manager(path: &Path) {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedImageView {
+    pub image_path: PathBuf,
+    pub metadata: openlogi_assets::metadata::ImageEntry,
+    pub png_width: u32,
+    pub png_height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAsset {
+    pub views: Vec<ResolvedImageView>,
     pub depot: String,
     pub display_name: String,
     /// The registry's curated device type for this model, normalized from the
@@ -195,27 +204,27 @@ impl AssetResolver {
     ) -> Option<ResolvedAsset> {
         let index = self.index.as_ref()?;
         let (depot, entry) = resolve_in_index(index, model, codename)?;
-        self.load_files(depot, entry, model)
+        self.load_files(depot, entry, model.extended_model_id)
     }
 
-    /// Resolve a standalone device directly by its registry model id.
-    ///
-    /// Standalone raw-HID devices do not expose a HID++ `DeviceModelInfo`, so
-    /// constructing one just to reuse [`Self::resolve`] would conflate a
-    /// physical protocol identity with a model-level asset identity. The
-    /// registry lookup remains exact and case-insensitive, while all local
-    /// filenames still pass through the same safe component checks.
     pub fn resolve_registry_model(&self, registry_model_id: &str) -> Option<ResolvedAsset> {
         let index = self.index.as_ref()?;
         let (depot, entry) = index.find_by_model_id(registry_model_id)?;
-        self.load_standalone_files(depot, entry, registry_model_id)
+        if matches!(
+            DeviceKind::from_registry_type(&entry.kind),
+            Some(DeviceKind::Mouse | DeviceKind::Keyboard)
+        ) {
+            self.load_files(depot, entry, 0)
+        } else {
+            self.load_standalone_files(depot, entry, registry_model_id)
+        }
     }
 
     fn load_files(
         &self,
         depot: &str,
         entry: &DeviceEntry,
-        model: &DeviceModelInfo,
+        extended_model_id: u8,
     ) -> Option<ResolvedAsset> {
         for root in &self.read_roots {
             let Ok(dir) = safe_component_path(root, depot, "asset depot") else {
@@ -249,12 +258,12 @@ impl AssetResolver {
             let buttons_name = manifest.as_ref().and_then(|m| {
                 entry
                     .model_id_candidates()
-                    .find_map(|base| buttons_image_for(m, base, model.extended_model_id))
+                    .find_map(|base| buttons_image_for(m, base, extended_model_id))
             });
             let variant_front_name = manifest.as_ref().and_then(|m| {
                 entry
                     .model_id_candidates()
-                    .find_map(|base| variant_image_for(m, base, model.extended_model_id))
+                    .find_map(|base| variant_image_for(m, base, extended_model_id))
             });
             // Front/hero render for the gallery: the colour variant's
             // `device_image`, falling back to the generic front renders. Resolved
@@ -312,7 +321,7 @@ impl AssetResolver {
                 depot,
                 root = %root.display(),
                 image = %image_name,
-                ext = model.extended_model_id,
+                ext = extended_model_id,
                 png_width,
                 png_height,
                 "asset hit"
@@ -324,7 +333,12 @@ impl AssetResolver {
                 .then(|| self::glow::resolve_glow_geometry(&dir, &image_path))
                 .flatten()
                 .map(Arc::new);
+            let views = manifest.as_ref().map_or_else(Vec::new, |manifest| {
+                let models = Vec::from_iter(entry.model_id_candidates().chain([depot]));
+                images::resolve_visual_views(&dir, manifest, &models, extended_model_id, &metadata)
+            });
             return Some(ResolvedAsset {
+                views,
                 depot: depot.to_string(),
                 display_name: entry.display_name.clone(),
                 kind,
@@ -374,6 +388,7 @@ impl AssetResolver {
                 "standalone asset hit"
             );
             return Some(ResolvedAsset {
+                views: Vec::new(),
                 depot: depot.to_owned(),
                 display_name: entry.display_name.clone(),
                 kind: DeviceKind::from_registry_type(&entry.kind),

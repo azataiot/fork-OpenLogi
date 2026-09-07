@@ -24,7 +24,7 @@ use openlogi_device::inventory::{Enumerator, InventoryError};
 use openlogi_device::pairing::PairingReceiver;
 use openlogi_device::write::{
     self as device, Dpi, DpiInfo, FeatureEntry, FirmwareEntity, HapticWaveform, LightingMethod,
-    LitraModel, ReprogControlEntry, ScrollResolution, ScrollWheelMode,
+    LitraModel, OnboardProfilesSnapshot, ReprogControlEntry, ScrollResolution, ScrollWheelMode,
 };
 use openlogi_device::{DeviceIoGate, DeviceIoSignal, DeviceRoute};
 
@@ -177,6 +177,13 @@ pub async fn dump_features(route: &DeviceRoute) -> Result<Vec<FeatureEntry>, Wri
     device::dump_features(&*native_backend(), route).await
 }
 
+/// Reads the stored user profiles without changing device settings.
+pub async fn dump_onboard_profiles(
+    route: &DeviceRoute,
+) -> Result<OnboardProfilesSnapshot, WriteError> {
+    device::dump_onboard_profiles(&*native_backend(), route).await
+}
+
 /// Walk the firmware entities of the device `route` reaches.
 pub async fn dump_firmware_entities(
     route: &DeviceRoute,
@@ -243,4 +250,23 @@ pub async fn enumerate() -> Result<Vec<DeviceInventory>, InventoryError> {
 /// List the pairing-capable receivers connected to this host.
 pub async fn list_pairing_receivers() -> Result<Vec<PairingReceiver>, PairingError> {
     openlogi_device::pairing::list_pairing_receivers(&*native_backend()).await
+}
+
+/// Read monochrome LED capabilities and state without changing ownership.
+pub async fn dump_monochrome_leds(
+    route: &DeviceRoute,
+) -> Result<openlogi_device::MonochromeLedSnapshot, WriteError> {
+    device::dump_monochrome_leds(&*native_backend(), route).await
+}
+
+/// Read supported and active report intervals without changing settings.
+pub async fn get_report_rate_info(
+    route: &DeviceRoute,
+) -> Result<openlogi_device::ReportRateInfo, WriteError> {
+    device::get_report_rate_info(&*native_backend(), route).await
+}
+
+/// Set a firmware-advertised report interval in milliseconds.
+pub async fn set_report_interval(route: &DeviceRoute, interval_ms: u8) -> Result<(), WriteError> {
+    device::set_report_interval(&*native_backend(), route, interval_ms).await
 }

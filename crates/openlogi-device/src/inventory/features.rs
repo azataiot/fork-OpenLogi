@@ -11,6 +11,7 @@ use hidpp::{
         device_information::{DeviceInformationFeature, DeviceTransport},
         device_type_and_name::DeviceTypeAndNameFeature,
         gestures2::Gestures2Feature,
+        onboard_profiles::OnboardProfilesFeature,
         reprog_controls::{ReprogControlsFeature, control_ids},
         unified_battery::UnifiedBatteryFeature,
     },
@@ -320,6 +321,10 @@ async fn probe_extra_capabilities(
     caps: &mut Capabilities,
     probe_haptic_controls: bool,
 ) -> Result<(), ()> {
+    if let Some(feature) = device.get_feature::<OnboardProfilesFeature>() {
+        let description = feature.description().await.map_err(|_| ())?;
+        caps.onboard_profiles = description.validate_layout().is_ok();
+    }
     if let Some(feature) = device.get_feature::<HiResWheelFeature>() {
         caps.scroll_inversion = feature
             .get_wheel_capabilities()

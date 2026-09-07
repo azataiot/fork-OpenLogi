@@ -82,17 +82,6 @@ fn codename_bridges_btle_3s_on_legacy_index() {
     assert_eq!(hit.map(|(depot, _)| depot), Some("mx_master_3s"));
 }
 
-fn bare_model() -> DeviceModelInfo {
-    DeviceModelInfo {
-        entity_count: 0,
-        serial_number: None,
-        unit_id: [0; 4],
-        transports: DeviceTransports::default(),
-        model_ids: [0; 3],
-        extended_model_id: 0,
-    }
-}
-
 /// A 24-byte PNG: signature + an `IHDR` chunk header carrying only the
 /// width/height — all `read_png_dimensions` actually reads.
 fn png_header(width: u32, height: u32) -> Vec<u8> {
@@ -141,7 +130,7 @@ fn resolves_old_schema_depot_on_disk() {
     };
 
     let asset = resolver
-        .load_files(depot, &entry, &bare_model())
+        .load_files(depot, &entry, 0)
         .expect("old-schema depot should resolve");
     assert_eq!(
         asset.image_path.file_name().expect("image has a file name"),
@@ -188,6 +177,52 @@ fn resolves_standalone_registry_model_without_synthetic_hidpp_info() {
     assert_eq!(asset.kind, Some(DeviceKind::Light));
     assert_eq!(asset.image_path, depot.join("front.png"));
     assert_eq!((asset.png_width, asset.png_height), (396, 396));
+}
+
+#[test]
+fn registry_mouse_preserves_buttons_render_and_metadata() {
+    let root = tempfile::tempdir().expect("temporary directory");
+    let dir = root.path().join("gaming_mouse");
+    std::fs::create_dir(&dir).expect("depot");
+    std::fs::write(dir.join("front.png"), png_header(100, 200)).expect("front");
+    std::fs::write(dir.join("side.png"), png_header(200, 100)).expect("side");
+    std::fs::write(
+        dir.join("metadata.json"),
+        r#"{"images":[
+        {"key":"device_buttons_image","origin":{"width":200,"height":100},
+         "assignments":[{"slotName":"SLOT_NAME_MIDDLE_BUTTON",
+          "marker":{"x":50,"y":50},"label":{"x":0,"y":0}}]}]}"#,
+    )
+    .expect("metadata");
+    std::fs::write(
+        dir.join("manifest.json"),
+        r#"{"devices":[{"modelId":"abcd","resources":[
+        {"key":"device_image","src":"front.png"},
+        {"key":"device_buttons_image","src":"side.png"}]}],"resources":[]}"#,
+    )
+    .expect("manifest");
+    let resolver = AssetResolver {
+        read_roots: vec![root.path().to_path_buf()],
+        write_root: root.path().to_path_buf(),
+        has_bundle: false,
+        index: Some(index_of(
+            "gaming_mouse",
+            DeviceEntry {
+                model_id: "abcd".into(),
+                model_ids: vec![],
+                display_name: "Gaming Mouse".into(),
+                kind: "MOUSE".into(),
+                asset_path: "assets/gaming_mouse/".into(),
+                files: vec![],
+            },
+        )),
+    };
+    let asset = resolver
+        .resolve_registry_model("abcd")
+        .expect("mouse asset");
+    assert_eq!(asset.image_path, dir.join("side.png"));
+    assert_eq!(asset.hero_image_path, Some(dir.join("front.png")));
+    assert_eq!(asset.metadata.assignments().count(), 1);
 }
 
 #[test]

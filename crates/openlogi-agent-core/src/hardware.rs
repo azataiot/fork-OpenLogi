@@ -28,7 +28,7 @@ use openlogi_hid::{
 use tokio::time::error::Elapsed;
 use tracing::{debug, warn};
 
-use crate::receiver_access::ReceiverAccess;
+use crate::receiver_access::{ExclusiveAccessReason, ReceiverAccess};
 
 mod light;
 
@@ -135,6 +135,32 @@ impl<'a> DeviceOp<'a> {
         let _lease = self.receiver_access.acquire_for_io().await;
         let shared = self.resolve()?;
         timed(op, f(shared)).await
+    }
+
+    /// Run a profile transaction with exclusive access and an unambiguous live connection.
+    pub async fn run_profile<F, Fut, T>(self, f: F) -> Result<T, WriteError>
+    where
+        F: FnOnce(SharedChannel) -> Fut,
+        Fut: Future<Output = Result<T, WriteError>>,
+    {
+        if !self.device_io.allows_io() {
+            return Err(WriteError::DeviceNotFound);
+        }
+        let _lease = self
+            .receiver_access
+            .acquire_exclusive(ExclusiveAccessReason::ProfileWrite)
+            .await;
+        let shared = self.resolve()?;
+        if !self.registry.is_unique_current(&shared) {
+            return Err(WriteError::OnboardProfile {
+                kind: openlogi_core::hid::onboard_profile::OnboardProfileFailure::StaleSession,
+                message: "device route is ambiguous; disconnect identical devices and read again"
+                    .into(),
+                backup_id: None,
+            });
+        }
+        // Flash transactions must retain their lease through readback. Each HID request has its own deadline.
+        f(shared).await
     }
 
     /// Fire-and-forget `f` on its own OS thread and one-shot runtime, with the

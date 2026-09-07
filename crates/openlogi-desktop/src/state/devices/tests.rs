@@ -61,6 +61,35 @@ fn direct_inventory(model_info: DeviceModelInfo) -> DeviceInventory {
     }
 }
 
+#[test]
+fn g402_asset_identity_preserves_zero_firmware_and_runtime_identity() {
+    let model = DeviceModelInfo {
+        entity_count: 1,
+        serial_number: None,
+        unit_id: [0; 4],
+        transports: DeviceTransports::default(),
+        model_ids: [0; 3],
+        extended_model_id: 0,
+    };
+    let mut inventory = direct_inventory(model.clone());
+    inventory.receiver.product_id = 0xc07e;
+    inventory.receiver.name = "Gaming Mouse".into();
+    inventory.paired[0].codename = Some("Gaming Mouse".into());
+    let list = build_device_list(
+        &[inventory],
+        &[],
+        &AssetResolver::new(),
+        &Config::default(),
+        &[],
+    );
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].registry_model_id.as_deref(), Some("aab4"));
+    assert_eq!(list[0].model_info.as_ref(), Some(&model));
+    assert!(!list[0].persistent);
+    assert_ne!(list[0].config_key, "aab4");
+    assert_eq!(list[0].driver_id, None);
+}
+
 /// The same mouse, paired to a Bolt receiver — reachable by receiver UID
 /// and slot. Shares `unit_id` and `online: true` with [`cabled_inventory`]
 /// so both routes resolve to the same physical device.
@@ -267,6 +296,7 @@ fn mouse_identity(name: &str) -> DeviceIdentity {
             thumbwheel: false,
             haptic_feedback: false,
             haptic_panel: false,
+            onboard_profiles: false,
         },
         light_capabilities: None,
         model_info: None,

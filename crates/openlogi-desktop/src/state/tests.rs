@@ -1194,7 +1194,7 @@ fn identical_standalone_units_share_one_model_asset_target() {
 
     assert_eq!(
         state.asset_models(),
-        vec![crate::services::assets::sync::AssetTarget::Standalone {
+        vec![crate::services::assets::sync::AssetTarget::RegistryModel {
             registry_model_id: "8c900".into(),
         }]
     );

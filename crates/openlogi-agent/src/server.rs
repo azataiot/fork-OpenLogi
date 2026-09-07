@@ -40,9 +40,17 @@ use tarpc::server::{BaseChannel, Channel as _};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+mod onboard_profiles;
+mod profile_backups;
+use onboard_profiles::{OnboardProfiles, ProfileOperation};
+use openlogi_core::hid::onboard_profile::{
+    OnboardApplyResult, OnboardProfileEdit, OnboardProfileView, ProfileEditId,
+};
+
 /// Shared handle to the agent's state, cloned per connection (and per request).
 #[derive(Clone)]
 pub struct AgentServer {
+    onboard_profiles: Arc<OnboardProfiles>,
     pub orchestrator: Arc<Mutex<Orchestrator>>,
     pub shared: SharedRuntime,
     /// Everything the GUI observes, answered from here rather than recomposed
@@ -74,6 +82,7 @@ impl AgentServer {
         let (demand, declarations) = tokio::sync::mpsc::unbounded_channel();
         (
             Self {
+                onboard_profiles: Arc::new(OnboardProfiles::default()),
                 orchestrator,
                 shared,
                 observable,
@@ -322,6 +331,38 @@ impl Agent for AgentServer {
 
     async fn action_ring_cancel(self, _: Context, session_id: u64) {
         self.action_ring.cancel(session_id);
+    }
+
+    async fn read_onboard_profile(
+        self,
+        _: Context,
+        route: DeviceRoute,
+    ) -> Result<OnboardProfileView, WriteError> {
+        self.onboard_profiles.read(&self.shared, &route).await
+    }
+
+    async fn apply_onboard_profile(
+        self,
+        _: Context,
+        route: DeviceRoute,
+        id: ProfileEditId,
+        edit: OnboardProfileEdit,
+    ) -> Result<OnboardApplyResult, WriteError> {
+        self.onboard_profiles
+            .submit(self.shared, route, id, ProfileOperation::Edit(edit))
+            .await
+    }
+
+    async fn restore_onboard_profile(
+        self,
+        _: Context,
+        route: DeviceRoute,
+        id: ProfileEditId,
+        backup_id: ProfileEditId,
+    ) -> Result<OnboardApplyResult, WriteError> {
+        self.onboard_profiles
+            .submit(self.shared, route, id, ProfileOperation::Restore(backup_id))
+            .await
     }
 }
 

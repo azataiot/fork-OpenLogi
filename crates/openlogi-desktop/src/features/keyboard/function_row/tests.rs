@@ -214,12 +214,14 @@ fn legacy_asset(
     let assignments = marker_xs
         .iter()
         .map(|x| Assignment {
+            slot_id: String::new(),
             slot_name: String::new(),
-            marker: Point { x: *x, y: marker_y },
+            marker: Some(Point { x: *x, y: marker_y }),
             label: Direction { x: -1, y: -1 },
         })
         .collect();
     ResolvedAsset {
+        views: Vec::new(),
         depot: "g513".to_string(),
         display_name: "G513".to_string(),
         kind: Some(DeviceKind::Keyboard),
@@ -228,6 +230,7 @@ fn legacy_asset(
         glow: None,
         metadata: Metadata {
             images: vec![ImageEntry {
+                coordinates: openlogi_assets::metadata::MarkerCoordinates::Percentage,
                 key: "device_image".to_string(),
                 origin: Origin {
                     width: origin.0,
@@ -243,6 +246,7 @@ fn legacy_asset(
 
 fn asset_with_markers(key_markers: &[f32], easy_switch_markers: &[f32]) -> ResolvedAsset {
     ResolvedAsset {
+        views: Vec::new(),
         depot: "mx_keys_s_for_mac".to_string(),
         display_name: "MX Keys S for Mac".to_string(),
         kind: Some(DeviceKind::Keyboard),
@@ -252,6 +256,7 @@ fn asset_with_markers(key_markers: &[f32], easy_switch_markers: &[f32]) -> Resol
         metadata: Metadata {
             images: vec![
                 ImageEntry {
+                    coordinates: openlogi_assets::metadata::MarkerCoordinates::Percentage,
                     key: "device_keys_image".to_string(),
                     origin: Origin {
                         width: 1872,
@@ -260,6 +265,7 @@ fn asset_with_markers(key_markers: &[f32], easy_switch_markers: &[f32]) -> Resol
                     assignments: assignments_from_markers(key_markers),
                 },
                 ImageEntry {
+                    coordinates: openlogi_assets::metadata::MarkerCoordinates::Percentage,
                     key: "device_easyswitch_image".to_string(),
                     origin: Origin {
                         width: 1872,
@@ -279,8 +285,9 @@ fn assignments_from_markers(markers: &[f32]) -> Vec<Assignment> {
         .iter()
         .enumerate()
         .map(|(idx, x)| Assignment {
+            slot_id: String::new(),
             slot_name: format!("slot-{idx}"),
-            marker: Point { x: *x, y: 13.0 },
+            marker: Some(Point { x: *x, y: 13.0 }),
             label: Direction { x: -1, y: -1 },
         })
         .collect()

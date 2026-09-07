@@ -24,6 +24,7 @@ struct ReceiverAccessInner {
 pub struct ReceiverRequestState {
     pairing: usize,
     host_transition: usize,
+    profile_write: usize,
 }
 
 /// Operation requiring sole ownership of a receiver transport.
@@ -33,6 +34,8 @@ pub enum ExclusiveAccessReason {
     Pairing,
     /// Coordinated movement of linked devices to another host.
     HostTransition,
+    /// Atomic onboard profile flash operations.
+    ProfileWrite,
 }
 
 impl ExclusiveAccessReason {
@@ -40,6 +43,7 @@ impl ExclusiveAccessReason {
         match self {
             Self::Pairing => &mut requests.pairing,
             Self::HostTransition => &mut requests.host_transition,
+            Self::ProfileWrite => &mut requests.profile_write,
         }
     }
 }
@@ -48,7 +52,7 @@ impl ReceiverRequestState {
     /// Whether any exclusive operation is queued or active.
     #[must_use]
     pub fn any(self) -> bool {
-        self.pairing != 0 || self.host_transition != 0
+        self.pairing != 0 || self.host_transition != 0 || self.profile_write != 0
     }
 
     /// Whether an operation for `reason` is queued or active.
@@ -57,6 +61,7 @@ impl ReceiverRequestState {
         match reason {
             ExclusiveAccessReason::Pairing => self.pairing != 0,
             ExclusiveAccessReason::HostTransition => self.host_transition != 0,
+            ExclusiveAccessReason::ProfileWrite => self.profile_write != 0,
         }
     }
 }
@@ -177,6 +182,26 @@ impl Drop for ExclusiveRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn profile_write_blocks_capture_and_ordinary_io() {
+        let access = ReceiverAccess::default();
+        let lease = access
+            .acquire_exclusive(ExclusiveAccessReason::ProfileWrite)
+            .await;
+        assert!(access.exclusive_requested());
+        assert!(access.try_acquire_for_session().is_none());
+        let waiting = tokio::spawn({
+            let access = access.clone();
+            async move { access.acquire_for_io().await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        drop(lease);
+        waiting.await.unwrap();
+        assert!(!access.exclusive_requested());
+        assert!(access.try_acquire_for_session().is_some());
+    }
 
     #[tokio::test]
     async fn pairing_request_blocks_new_capture_until_pairing_lease_drops() {

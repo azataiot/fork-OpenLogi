@@ -111,7 +111,8 @@ pub fn asset_hotspots_for_png(asset: &ResolvedAsset, mouse_w: f32, mouse_h: f32)
         .assignments()
         .filter_map(|a| {
             let id = map_slot_name(&a.slot_name)?;
-            let (cx, cy) = marker_to_canvas(a.marker.x, a.marker.y);
+            let marker = a.marker?;
+            let (cx, cy) = marker_to_canvas(marker.x, marker.y);
             Some(Hotspot {
                 id,
                 x: cx - ASSET_HOTSPOT / 2.,

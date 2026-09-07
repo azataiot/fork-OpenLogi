@@ -7,6 +7,22 @@ use openlogi_core::device::{
 };
 use openlogi_core::hid::DeviceRoute;
 
+#[test]
+fn g402_connection_uses_usb_without_firmware_transports() {
+    let route = DeviceRoute::Direct {
+        vendor_id: 0x046d,
+        product_id: 0xc07e,
+    };
+    assert_eq!(
+        connection_icon_path(Some(&route), None),
+        "action-icons/usb.svg"
+    );
+    assert_eq!(
+        connection_icon_path(Some(&route), Some(&DeviceTransports::default())),
+        "action-icons/usb.svg"
+    );
+}
+
 /// "Charging" replaces the bogus percentage only when charging *and* the
 /// reading is still 0% (cold start, no cached pre-charge value). A non-zero
 /// charge or a real 0% while discharging keeps the number.
@@ -187,6 +203,7 @@ fn tabs_follow_capabilities_not_kind() {
         thumbwheel: false,
         haptic_feedback: false,
         haptic_panel: false,
+        onboard_profiles: false,
     });
     // After 0x0005 kind-correction the record has kind=Mouse, not Keyboard.
     let tabs = DetailTab::tabs_for(&record(DeviceKind::Mouse, caps));
@@ -209,6 +226,7 @@ fn keyboard_without_asset_hides_buttons_tab() {
         thumbwheel: false,
         haptic_feedback: false,
         haptic_panel: false,
+        onboard_profiles: false,
     });
     let tabs = DetailTab::tabs_for(&record(DeviceKind::Keyboard, caps));
     assert!(
@@ -229,6 +247,7 @@ fn keyboard_with_buttons_shows_keys_tab() {
         thumbwheel: false,
         haptic_feedback: false,
         haptic_panel: false,
+        onboard_profiles: false,
     });
     let tabs = DetailTab::tabs_for(&record(DeviceKind::Keyboard, caps));
     assert!(tabs.contains(&DetailTab::Keys));
@@ -280,4 +299,16 @@ fn unprobed_mouse_falls_back_to_presumed_capabilities() {
 fn unprobed_unknown_device_shows_only_device_tab() {
     let tabs = DetailTab::tabs_for(&record(DeviceKind::Unknown, None));
     assert_eq!(tabs, vec![DetailTab::Device]);
+}
+
+#[test]
+fn onboard_tab_requires_a_measured_profile_capability() {
+    let mut device = record(
+        DeviceKind::Mouse,
+        Some(Capabilities::from_feature_ids(&[0x8100, 0x8060])),
+    );
+    assert!(!DetailTab::tabs_for(&device).contains(&DetailTab::Onboard));
+    device.capabilities.as_mut().unwrap().onboard_profiles = true;
+    assert!(DetailTab::tabs_for(&device).contains(&DetailTab::Onboard));
+    assert!(!DetailTab::tabs_for(&record(DeviceKind::Mouse, None)).contains(&DetailTab::Onboard));
 }

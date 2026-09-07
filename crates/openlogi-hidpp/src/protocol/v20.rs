@@ -40,6 +40,14 @@ pub enum Message {
 }
 
 impl Message {
+    /// Returns a long payload without padding a short response.
+    pub fn long_payload(self) -> Result<[u8; LONG_REPORT_LENGTH - 4], Hidpp20Error> {
+        match self {
+            Self::Long(_, payload) => Ok(payload),
+            Self::Short(..) => Err(Hidpp20Error::UnsupportedResponse),
+        }
+    }
+
     /// Extracts the header of the message.
     #[must_use]
     pub fn header(&self) -> MessageHeader {

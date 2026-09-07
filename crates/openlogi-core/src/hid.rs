@@ -11,6 +11,7 @@
 pub mod dpi;
 pub mod error;
 pub mod light;
+pub mod onboard_profile;
 pub mod pairing;
 pub mod route;
 pub mod smartshift;

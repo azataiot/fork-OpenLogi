@@ -34,7 +34,7 @@ impl AppState {
                 let target = record
                     .registry_model_id
                     .clone()
-                    .map(|registry_model_id| AssetTarget::Standalone { registry_model_id })
+                    .map(|registry_model_id| AssetTarget::RegistryModel { registry_model_id })
                     .or_else(|| {
                         record.model_info.clone().map(|model| AssetTarget::Hidpp {
                             model,

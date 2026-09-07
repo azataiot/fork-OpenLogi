@@ -13,6 +13,7 @@ use openlogi_core::device_order::{
     DeviceIdentity as RouteIdentity, DeviceStableId, PhysicalDeviceKey,
 };
 use openlogi_core::hid::DeviceRoute;
+use openlogi_device_registry::hidpp::{DirectHidppDescriptor, find_direct_hidpp};
 use tracing::debug;
 
 use super::device_key::DeviceKey;
@@ -66,7 +67,7 @@ pub struct DeviceRecord {
     pub unit_id: [u8; 4],
     /// Standalone driver family, if this is a non-HID++ record.
     pub driver_id: Option<String>,
-    /// Model-level asset registry identity for standalone devices.
+    /// Exact model-level asset identity, independent of physical device identity.
     pub registry_model_id: Option<String>,
     pub route: Option<DeviceRoute>,
     /// OS capture id for cameras (AVFoundation uniqueID / DirectShow path).
@@ -160,9 +161,58 @@ pub(super) fn build_device_list(
     cameras: &[Camera],
 ) -> Vec<DeviceRecord> {
     let mut list = Vec::new();
+    append_hidpp(&mut list, inventories, cache, config);
+    append_standalone(&mut list, standalone, cache, config);
+    #[cfg(debug_assertions)]
+    if std::env::var_os("OPENLOGI_DEMO_KEYBOARD").is_some() {
+        list.push(demo_keyboard());
+    }
+    let present_receivers: HashSet<String> = inventories
+        .iter()
+        .filter_map(|inv| inv.receiver.unique_id.as_deref())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    append_offline_known(
+        &mut list,
+        config.known_identities(),
+        cache,
+        &present_receivers,
+        config,
+    );
+    // Cameras are UVC, not HID++, so they come from a parallel discovery path
+    // (AVFoundation on macOS) rather than the receiver inventory. The caller
+    // enumerates them off the UI thread — discovery is too slow for the render
+    // path — so this assembly stays pure; the merge in
+    // `super::AppState::refresh_inventories` reconciles them by inventory key.
+    for camera in cameras {
+        list.push(camera_record(camera, cache));
+    }
+    apply_custom_names(&mut list, config);
+    sort_device_list(&mut list);
+    list
+}
+
+fn registered_hidpp_device(route: Option<&DeviceRoute>) -> Option<DirectHidppDescriptor> {
+    match route? {
+        DeviceRoute::Direct {
+            vendor_id,
+            product_id,
+        } => find_direct_hidpp(*vendor_id, *product_id),
+        _ => None,
+    }
+}
+
+fn append_hidpp(
+    list: &mut Vec<DeviceRecord>,
+    inventories: &[DeviceInventory],
+    cache: &AssetResolver,
+    config: &Config,
+) {
     for inv in inventories {
         for paired in &inv.paired {
             let route = DeviceRoute::device_route_for(inv, paired.slot);
+            let registry_model_id = registered_hidpp_device(route.as_ref())
+                .map(|device| device.registry_model_id.to_owned());
             let (model_key, asset, model_info, codename, serial_number, unit_id) =
                 if let Some(model) = paired.model_info.as_ref() {
                     let asset = cache.resolve(model, paired.codename.as_deref());
@@ -185,6 +235,10 @@ pub(super) fn build_device_list(
                     );
                     (key, None, None, paired.codename.clone(), None, [0u8; 4])
                 };
+            let asset = registry_model_id
+                .as_deref()
+                .and_then(|id| cache.resolve_registry_model(id))
+                .or(asset);
             let stable_id = DeviceStableId::from_parts(
                 route.as_ref(),
                 paired.slot,
@@ -226,7 +280,7 @@ pub(super) fn build_device_list(
                 serial_number,
                 unit_id,
                 driver_id: None,
-                registry_model_id: None,
+                registry_model_id,
                 route,
                 capture_id: None,
                 kind,
@@ -238,34 +292,6 @@ pub(super) fn build_device_list(
             });
         }
     }
-    append_standalone(&mut list, standalone, cache, config);
-    #[cfg(debug_assertions)]
-    if std::env::var_os("OPENLOGI_DEMO_KEYBOARD").is_some() {
-        list.push(demo_keyboard());
-    }
-    let present_receivers: HashSet<String> = inventories
-        .iter()
-        .filter_map(|inv| inv.receiver.unique_id.as_deref())
-        .map(str::to_ascii_lowercase)
-        .collect();
-    append_offline_known(
-        &mut list,
-        config.known_identities(),
-        cache,
-        &present_receivers,
-        config,
-    );
-    // Cameras are UVC, not HID++, so they come from a parallel discovery path
-    // (AVFoundation on macOS) rather than the receiver inventory. The caller
-    // enumerates them off the UI thread — discovery is too slow for the render
-    // path — so this assembly stays pure; the merge in
-    // `super::AppState::refresh_inventories` reconciles them by inventory key.
-    for camera in cameras {
-        list.push(camera_record(camera, cache));
-    }
-    apply_custom_names(&mut list, config);
-    sort_device_list(&mut list);
-    list
 }
 
 fn apply_custom_names(list: &mut [DeviceRecord], config: &Config) {

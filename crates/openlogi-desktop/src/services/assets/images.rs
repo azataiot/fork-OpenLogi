@@ -81,3 +81,54 @@ pub(super) fn load_manifest(dir: &Path) -> Option<DepotManifest> {
         )
         .ok()
 }
+
+pub(super) fn resolve_visual_views(
+    dir: &Path,
+    manifest: &DepotManifest,
+    model_ids: &[&str],
+    ext: u8,
+    metadata: &openlogi_assets::metadata::Metadata,
+) -> Vec<super::ResolvedImageView> {
+    metadata
+        .images
+        .iter()
+        .filter_map(|image| {
+            let name = model_ids
+                .iter()
+                .find_map(|model| manifest.resource_for_variant(model, ext, &image.key))?;
+            let path = openlogi_assets::http::safe_component_path(dir, name, "asset view").ok()?;
+            let (png_width, png_height) = read_png_dimensions(&path).ok()?;
+            Some(super::ResolvedImageView {
+                image_path: path,
+                metadata: image.clone(),
+                png_width,
+                png_height,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visual_views_follow_manifest_keys_and_reject_missing_or_unsafe_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest: DepotManifest = serde_json::from_str(r#"{"devices":[{"modelId":"sample","resources":[{"key":"device_image","src":"top.png"},{"key":"device_side","src":"edge.png"}]}]}"#).unwrap();
+        let metadata: openlogi_assets::metadata::Metadata = serde_json::from_str(r#"{"images":[{"key":"device_side","origin":{"width":80,"height":200}},{"key":"device_image","origin":{"width":100,"height":200}}]}"#).unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+        png.extend_from_slice(&80_u32.to_be_bytes());
+        png.extend_from_slice(&200_u32.to_be_bytes());
+        std::fs::write(dir.path().join("edge.png"), png).unwrap();
+        let views = resolve_visual_views(dir.path(), &manifest, &["sample"], 0, &metadata);
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].metadata.key, "device_side");
+        assert_eq!(views[0].png_width, 80);
+        let unsafe_manifest: DepotManifest = serde_json::from_str(r#"{"devices":[{"modelId":"sample","resources":[{"key":"device_side","src":"../edge.png"}]}]}"#).unwrap();
+        assert!(
+            resolve_visual_views(dir.path(), &unsafe_manifest, &["sample"], 0, &metadata)
+                .is_empty()
+        );
+    }
+}

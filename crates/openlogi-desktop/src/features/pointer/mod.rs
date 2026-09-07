@@ -2,3 +2,5 @@
 
 pub mod dpi;
 pub mod smartshift;
+
+pub mod onboard;

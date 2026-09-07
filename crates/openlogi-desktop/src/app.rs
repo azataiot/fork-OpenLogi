@@ -22,6 +22,7 @@ use crate::features::lighting::device::LightingPanel;
 use crate::features::lighting::standalone::LightPanel;
 use crate::features::mouse::view::MouseModelView;
 use crate::features::pointer::dpi::DpiPanel;
+use crate::features::pointer::onboard::OnboardPanel;
 use crate::features::pointer::smartshift::SmartShiftPanel;
 use crate::features::profiles::{AppCatalogPicker, ProfileIconCache};
 use crate::services::assets::AssetResolver;
@@ -77,6 +78,7 @@ enum DetailTab {
     Keys,
     /// Pointer tuning — DPI and presets.
     Pointer,
+    Onboard,
     /// RGB lighting — color, brightness, on/off.
     Lighting,
     /// Live webcam preview (UVC cameras only).
@@ -124,6 +126,9 @@ impl DetailTab {
         if matches!(record.kind, DeviceKind::Keyboard) && caps.buttons {
             tabs.push(Self::Keys);
         }
+        if caps.onboard_profiles {
+            tabs.push(Self::Onboard);
+        }
         if caps.pointer {
             tabs.push(Self::Pointer);
         }
@@ -150,6 +155,7 @@ impl DetailTab {
             Self::Buttons => tr!("device.buttons"),
             Self::ActionsRing => tr!("action_ring.actions_ring"),
             Self::Keys => tr!("device.keys"),
+            Self::Onboard => tr!("onboard.title"),
             Self::Pointer => tr!("device.pointer"),
             Self::Lighting | Self::Light => tr!("device.lighting"),
             Self::Camera => tr!("camera.camera"),
@@ -167,6 +173,7 @@ pub struct AppView {
     keyboard_model: Entity<FunctionRowView>,
     dpi_panel: Entity<DpiPanel>,
     smartshift_panel: Entity<SmartShiftPanel>,
+    onboard_panel: Entity<OnboardPanel>,
     lighting_panel: Entity<LightingPanel>,
     camera_preview: Entity<CameraPreview>,
     camera_controls: Entity<CameraControlsPanel>,
@@ -297,6 +304,7 @@ impl AppView {
             keyboard_model,
             dpi_panel,
             smartshift_panel,
+            onboard_panel: cx.new(OnboardPanel::new),
             lighting_panel,
             camera_preview,
             camera_controls,
@@ -603,6 +611,7 @@ impl Render for AppView {
                         keyboard_model: &self.keyboard_model,
                         dpi_panel: &self.dpi_panel,
                         smartshift_panel: &self.smartshift_panel,
+                        onboard_panel: &self.onboard_panel,
                         lighting_panel: &self.lighting_panel,
                         camera_preview: &self.camera_preview,
                         camera_controls: &self.camera_controls,

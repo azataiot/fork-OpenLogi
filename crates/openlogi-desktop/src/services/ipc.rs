@@ -28,6 +28,9 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use openlogi_core::config::Lighting;
+use openlogi_core::hid::onboard_profile::{
+    OnboardApplyResult, OnboardProfileEdit, OnboardProfileView, ProfileEditId,
+};
 use openlogi_core::hid::{
     DeviceRoute, Dpi, DpiInfo, LightCommand, ReceiverSelector, SmartShiftStatus, WriteError,
 };
@@ -112,6 +115,22 @@ pub enum Command {
     ReadSmartShift(
         DeviceRoute,
         oneshot::Sender<Result<SmartShiftStatus, WriteError>>,
+    ),
+    ReadOnboard(
+        DeviceRoute,
+        oneshot::Sender<Result<OnboardProfileView, WriteError>>,
+    ),
+    ApplyOnboard(
+        DeviceRoute,
+        ProfileEditId,
+        OnboardProfileEdit,
+        oneshot::Sender<Result<OnboardApplyResult, WriteError>>,
+    ),
+    RestoreOnboard(
+        DeviceRoute,
+        ProfileEditId,
+        ProfileEditId,
+        oneshot::Sender<Result<OnboardApplyResult, WriteError>>,
     ),
     ReloadConfig,
     /// Ask the agent to fire the macOS Accessibility prompt. The agent owns the
@@ -554,6 +573,25 @@ async fn handle(
         Command::ReadSmartShift(route, reply) => {
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
         }
+        Command::ReadOnboard(route, reply) => {
+            let mut ctx = ctx;
+            ctx.deadline = Instant::now() + Duration::from_secs(120);
+            let _ = reply.send(rpc_result(client.read_onboard_profile(ctx, route).await)?);
+        }
+        Command::ApplyOnboard(route, id, edit, reply) => {
+            let mut ctx = ctx;
+            ctx.deadline = Instant::now() + Duration::from_secs(120);
+            let _ = reply.send(rpc_result(
+                client.apply_onboard_profile(ctx, route, id, edit).await,
+            )?);
+        }
+        Command::RestoreOnboard(route, id, backup, reply) => {
+            let mut ctx = ctx;
+            ctx.deadline = Instant::now() + Duration::from_secs(120);
+            let _ = reply.send(rpc_result(
+                client.restore_onboard_profile(ctx, route, id, backup).await,
+            )?);
+        }
         Command::ReloadConfig => {
             // A transport failure is not the agent rejecting the config, but it
             // is still a reload that did not happen — and the file on disk has
@@ -666,6 +704,12 @@ fn reply_disconnected(update_tx: &mpsc::UnboundedSender<GuiUpdate>, cmd: Command
     // Transient, not a permanent feature error: the agent is just restarting,
     // so the panel should keep retrying, not latch "unsupported".
     match cmd {
+        Command::ReadOnboard(_, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
+        Command::ApplyOnboard(_, _, _, reply) | Command::RestoreOnboard(_, _, _, reply) => {
+            let _ = reply.send(Err(WriteError::AgentUnavailable));
+        }
         Command::ReadDpi(_, reply) => {
             let _ = reply.send(Err(WriteError::AgentUnavailable));
         }

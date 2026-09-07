@@ -596,6 +596,7 @@ fn bolt_inventory(mouse_battery: BatteryInfo) -> DeviceInventory {
                     thumbwheel: true,
                     haptic_feedback: true,
                     haptic_panel: true,
+                    onboard_profiles: false,
                 }),
             },
             PairedDevice {
@@ -643,6 +644,7 @@ fn bolt_inventory(mouse_battery: BatteryInfo) -> DeviceInventory {
                     thumbwheel: false,
                     haptic_feedback: false,
                     haptic_panel: false,
+                    onboard_profiles: false,
                 }),
             },
         ],
@@ -692,6 +694,7 @@ fn direct_inventory() -> DeviceInventory {
                 thumbwheel: false,
                 haptic_feedback: false,
                 haptic_panel: false,
+                onboard_profiles: false,
             }),
         }],
     }
@@ -772,6 +775,40 @@ fn snapshot_of(state: &State) -> AgentSnapshot {
               the real server impl, which is the point of the mock"
 )]
 impl Agent for MockAgent {
+    async fn read_onboard_profile(
+        self,
+        _: Context,
+        _: DeviceRoute,
+    ) -> Result<openlogi_core::hid::onboard_profile::OnboardProfileView, WriteError> {
+        Err(WriteError::FeatureUnsupported {
+            feature_hex: 0x8100,
+        })
+    }
+
+    async fn apply_onboard_profile(
+        self,
+        _: Context,
+        _: DeviceRoute,
+        _: openlogi_core::hid::onboard_profile::ProfileEditId,
+        _: openlogi_core::hid::onboard_profile::OnboardProfileEdit,
+    ) -> Result<openlogi_core::hid::onboard_profile::OnboardApplyResult, WriteError> {
+        Err(WriteError::FeatureUnsupported {
+            feature_hex: 0x8100,
+        })
+    }
+
+    async fn restore_onboard_profile(
+        self,
+        _: Context,
+        _: DeviceRoute,
+        _: openlogi_core::hid::onboard_profile::ProfileEditId,
+        _: openlogi_core::hid::onboard_profile::ProfileEditId,
+    ) -> Result<openlogi_core::hid::onboard_profile::OnboardApplyResult, WriteError> {
+        Err(WriteError::FeatureUnsupported {
+            feature_hex: 0x8100,
+        })
+    }
+
     async fn protocol_version(self, _: Context) -> u32 {
         PROTOCOL_VERSION
     }

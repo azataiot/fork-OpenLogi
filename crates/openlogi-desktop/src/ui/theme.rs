@@ -39,7 +39,7 @@ pub const STATUS_DISABLED: u32 = 0x00ef_4444;
 /// Sizes that several components need to agree on.
 pub const HEADER_H: f32 = 64.;
 pub const FOOTER_H: f32 = 40.;
-pub const DETAIL_RAIL_W: f32 = 168.;
+pub const DETAIL_RAIL_W: f32 = 192.;
 /// Height of standalone form controls: buttons, text inputs, tabs.
 /// gpui-component's `.small()` maps to a 24 px `h_6`, which reads undersized
 /// against this 30 px control rhythm — small controls pin the height

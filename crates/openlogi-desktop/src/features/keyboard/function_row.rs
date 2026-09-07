@@ -1031,7 +1031,7 @@ fn legacy_pixel_key_points(asset: &ResolvedAsset) -> Option<Vec<KeyPoint>> {
     let mut markers: Vec<KeyPoint> = img
         .assignments
         .iter()
-        .map(|asg| asg.marker)
+        .filter_map(|asg| asg.marker)
         // Percent-schema depots never exceed 100 on either axis; anything
         // beyond is a pixel coordinate. Mixed files don't exist in the wild,
         // but a percent marker slipping through would land off by 27x.
@@ -1087,9 +1087,10 @@ fn sorted_marker_points(asset: &ResolvedAsset, image_keys: &[&str]) -> Vec<KeyPo
         .iter()
         .filter(|img| image_keys.contains(&img.key.as_str()))
         .flat_map(|img| img.assignments.iter())
-        .map(|asg| KeyPoint {
-            x_frac: asg.marker.x / 100.0,
-            y_frac: asg.marker.y / 100.0,
+        .filter_map(|asg| asg.marker)
+        .map(|marker| KeyPoint {
+            x_frac: marker.x / 100.0,
+            y_frac: marker.y / 100.0,
         })
         .collect();
     markers.sort_by(|a, b| {

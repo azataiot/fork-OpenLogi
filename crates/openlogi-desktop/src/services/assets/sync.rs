@@ -54,8 +54,8 @@ pub(crate) enum AssetTarget {
         /// Firmware codename used as the final matching fallback.
         codename: Option<String>,
     },
-    /// Standalone raw-HID lookup by the driver-provided registry identity.
-    Standalone {
+    /// Exact asset identity from the hardware registry.
+    RegistryModel {
         /// Exact model-level registry id, never a physical-device key.
         registry_model_id: String,
     },
@@ -73,8 +73,8 @@ pub(crate) fn model_key(target: &AssetTarget) -> String {
             model.model_ids[2],
             codename.as_deref().unwrap_or_default()
         ),
-        AssetTarget::Standalone { registry_model_id } => {
-            format!("standalone:model:{registry_model_id}")
+        AssetTarget::RegistryModel { registry_model_id } => {
+            format!("registry:model:{registry_model_id}")
         }
     }
 }
@@ -123,15 +123,15 @@ pub fn sync_target(registry: &AssetRegistry, target: &AssetTarget) -> Result<()>
             super::resolve_in_index(index, model, codename.as_deref())
                 .map(|(depot, entry)| (depot, entry, model.extended_model_id))
         }
-        AssetTarget::Standalone { registry_model_id } => index
+        AssetTarget::RegistryModel { registry_model_id } => index
             .find_by_model_id(registry_model_id)
             .map(|(depot, entry)| (depot, entry, 0)),
     };
     let Some((depot, entry, ext)) = resolved else {
-        if let AssetTarget::Standalone { registry_model_id } = target {
+        if let AssetTarget::RegistryModel { registry_model_id } = target {
             info!(
                 registry_model_id,
-                "standalone model is not registered — using fallback art"
+                "model is not registered — using fallback art"
             );
         } else {
             debug!("sync: no matching depot for this model");
@@ -179,6 +179,7 @@ fn sync_depot(
     for resource_key in [
         "device_image",
         "device_buttons_image",
+        "device_side",
         "device_camera_image",
     ] {
         let Some(variant) =
@@ -344,10 +345,10 @@ mod tests {
     #[test]
     fn standalone_target_key_is_model_scoped_not_physical() {
         assert_eq!(
-            model_key(&AssetTarget::Standalone {
+            model_key(&AssetTarget::RegistryModel {
                 registry_model_id: "8c900".into(),
             }),
-            "standalone:model:8c900"
+            "registry:model:8c900"
         );
     }
 }

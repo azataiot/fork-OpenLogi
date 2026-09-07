@@ -33,8 +33,8 @@
 //! }
 //! ```
 //!
-//! `marker.{x,y}` is a percentage 0..100 of the device image's origin
-//! dimensions. `label.{x,y}` is a direction code (-1 = left, 0 = centre,
+//! `core_metadata.json` markers use percentages of the origin dimensions.
+//! `metadata.json` markers use pixels. `label.{x,y}` is a direction code (-1 = left, 0 = centre,
 //! +1 = right; same for y) hinting where the annotation card should sit
 //! relative to the marker.
 
@@ -53,9 +53,53 @@ pub struct Metadata {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ImageEntry {
     pub key: String,
+    #[serde(skip)]
+    pub coordinates: MarkerCoordinates,
     pub origin: Origin,
     #[serde(default)]
     pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MarkerCoordinates {
+    Pixels,
+    #[default]
+    Percentage,
+}
+
+impl ImageEntry {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "PNG and metadata dimensions are bounded below the f32 integer precision limit"
+    )]
+    #[must_use]
+    pub fn marker_fraction(&self, assignment: &Assignment, png: Origin) -> Option<Point> {
+        if self.origin.width == 0
+            || self.origin.height == 0
+            || png.width < self.origin.width
+            || png.height < self.origin.height
+            || png.width > 16384
+            || png.height > 16384
+        {
+            return None;
+        }
+        let origin_w = self.origin.width as f32;
+        let origin_h = self.origin.height as f32;
+        let marker = assignment.marker?;
+        let (x, y) = match self.coordinates {
+            MarkerCoordinates::Pixels => (marker.x / origin_w, marker.y / origin_h),
+            MarkerCoordinates::Percentage => (marker.x / 100.0, marker.y / 100.0),
+        };
+        if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+            return None;
+        }
+        let png_w = png.width as f32;
+        let png_h = png.height as f32;
+        Some(Point {
+            x: ((png_w - origin_w) / 2.0 + x * origin_w) / png_w,
+            y: ((png_h - origin_h) / 2.0 + y * origin_h) / png_h,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -66,15 +110,14 @@ pub struct Origin {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Assignment {
+    #[serde(rename = "slotId", default)]
+    pub slot_id: String,
     /// Empty on older keyboard depots whose assignments carry only `slotId`;
     /// `map_slot_name`-style consumers treat unknown names as "no hotspot".
     #[serde(rename = "slotName", default)]
     pub slot_name: String,
-    /// Camera depots ship marker-less settings-slot assignments (under the
-    /// `device_camera_image` entry, which no hotspot consumer reads); a
-    /// missing marker defaults to the origin rather than failing the file.
     #[serde(default)]
-    pub marker: Point,
+    pub marker: Option<Point>,
     #[serde(default)]
     pub label: Direction,
 }
@@ -94,7 +137,16 @@ pub struct Direction {
 impl Metadata {
     /// Load and parse a metadata JSON file from disk.
     pub fn load_from(path: &Path) -> Result<Self, AssetError> {
-        http::load_json(path)
+        let mut metadata: Self = http::load_json(path)?;
+        let coordinates = if path.file_name().is_some_and(|name| name == "metadata.json") {
+            MarkerCoordinates::Pixels
+        } else {
+            MarkerCoordinates::Percentage
+        };
+        for image in &mut metadata.images {
+            image.coordinates = coordinates;
+        }
+        Ok(metadata)
     }
 
     /// Image dimensions (use the `device_image` entry — both entries
@@ -119,6 +171,65 @@ impl Metadata {
 #[cfg(test)]
 mod tests {
     use super::Metadata;
+
+    #[test]
+    fn absent_markers_are_not_invented_at_the_image_origin() {
+        let metadata: Metadata = serde_json::from_str(r#"{"images":[{"key":"device_image","origin":{"width":800,"height":2000},"assignments":[{"slotId":"first"}]}]}"#).unwrap();
+        let image = &metadata.images[0];
+        assert!(
+            image
+                .marker_fraction(&image.assignments[0], image.origin)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn source_format_preserves_pixel_slots_and_scales_against_the_selected_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{"images":[{"key":"device_side","origin":{"width":800,"height":2000},"assignments":[{"slotId":"example_g4_m1","marker":{"x":200,"y":1000}}]}]}"#;
+        let path = dir.path().join("metadata.json");
+        std::fs::write(&path, json).unwrap();
+        let metadata = Metadata::load_from(&path).unwrap();
+        let image = &metadata.images[0];
+        assert_eq!(image.assignments[0].slot_id, "example_g4_m1");
+        assert_eq!(image.coordinates, super::MarkerCoordinates::Pixels);
+        assert_eq!(
+            image.marker_fraction(
+                &image.assignments[0],
+                super::Origin {
+                    width: 800,
+                    height: 2000
+                }
+            ),
+            Some(super::Point { x: 0.25, y: 0.5 })
+        );
+    }
+
+    #[test]
+    fn percentage_markers_keep_padding_and_reject_invalid_geometry() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{"images":[{"key":"device_buttons_image","origin":{"width":800,"height":2000},"assignments":[{"slotName":"MIDDLE","marker":{"x":25,"y":50}}]}]}"#;
+        let path = dir.path().join("core_metadata.json");
+        std::fs::write(&path, json).unwrap();
+        let mut metadata = Metadata::load_from(&path).unwrap();
+        let image = &mut metadata.images[0];
+        let png = super::Origin {
+            width: 1000,
+            height: 2000,
+        };
+        assert_eq!(image.coordinates, super::MarkerCoordinates::Percentage);
+        assert_eq!(
+            image.marker_fraction(&image.assignments[0], png),
+            Some(super::Point { x: 0.3, y: 0.5 })
+        );
+        image.assignments[0].marker.as_mut().unwrap().x = 101.0;
+        assert!(image.marker_fraction(&image.assignments[0], png).is_none());
+        image.assignments[0].marker.as_mut().unwrap().x = f32::NAN;
+        assert!(image.marker_fraction(&image.assignments[0], png).is_none());
+        image.assignments[0].marker.as_mut().unwrap().x = 20.0;
+        image.origin.width = 0;
+        assert!(image.marker_fraction(&image.assignments[0], png).is_none());
+    }
 
     /// Older keyboard depots (G513) identify assignments by `slotId` only —
     /// no `slotName` — and add fields like `assignmentOffset`. Parsing must

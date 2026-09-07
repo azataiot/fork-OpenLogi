@@ -15,11 +15,23 @@ pub mod controls;
 pub mod dpi;
 pub mod features;
 pub mod lighting;
+pub mod monochrome;
+pub mod onboard;
+pub mod profiles;
+pub mod report_rate;
 pub mod smartshift;
 pub mod wheel;
 
 #[derive(Debug, Subcommand)]
 pub enum DiagCmd {
+    /// Read, back up, apply, or restore an onboard profile through the running agent.
+    Onboard(onboard::OnboardArgs),
+    /// Read report intervals or temporarily test and restore an interval.
+    ReportRate(report_rate::ReportRateArgs),
+    /// Read monochrome LED capabilities and state without changing settings.
+    Monochrome(monochrome::MonochromeArgs),
+    /// Read onboard profile descriptors, DPI stages, and raw assignments without writes.
+    Profiles(profiles::ProfilesArgs),
     /// Dump every HID++ feature the active device reports.
     Features(features::FeaturesArgs),
     /// Dump HID++ 0x1b04 reprogrammable controls and capability flags.
@@ -39,6 +51,10 @@ pub enum DiagCmd {
 impl DiagCmd {
     pub async fn run(self) -> Result<()> {
         match self {
+            Self::Onboard(args) => onboard::run(args).await,
+            Self::ReportRate(args) => report_rate::run(args).await,
+            Self::Monochrome(args) => monochrome::run(args).await,
+            Self::Profiles(args) => profiles::run(args).await,
             Self::Features(args) => features::run(args).await,
             Self::Controls(args) => controls::run(args).await,
             Self::Battery(args) => battery::run(args).await,

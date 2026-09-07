@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(cli)* add read-only onboard profile diagnostics
+- *(gui)* add a visual G402 onboard editor with front and side button selection
+
+### Fixed
+
+- *(gui)* resolve the G402 device image and USB connection icon
+- *(cli)* attempt DPI restoration after failed diagnostics and verify the restored value
+
 ## [0.8.3] - 2026-08-30
 
 ### Fixed
